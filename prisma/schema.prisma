@@ -1,0 +1,284 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== AUTH MODELS ====================
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  password      String?
+  image         String?
+  emailVerified DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  accounts      Account[]
+  sessions      Session[]
+  wallets       Wallet[]
+  transactions  Transaction[]
+  categories    Category[]
+  budgets       Budget[]
+  debts         Debt[]
+  goals         Goal[]
+  reminders     Reminder[]
+  notifications Notification[]
+  settings      UserSettings?
+  insights      AIInsight[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ==================== CORE FINANCE MODELS ====================
+model Wallet {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  type      String   // Bank, E-Wallet, Cash, Credit Card
+  balance   Float    @default(0)
+  number    String?  // Account number
+  color     String?  // For UI customization
+  icon      String?
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions  Transaction[]
+
+  @@unique([userId, name])
+  @@map("wallets")
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  type      String   // income, expense
+  icon      String?
+  color     String?
+  budget     Float?   // Optional monthly budget for this category
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+  budgets      Budget[]
+
+  @@unique([userId, name])
+  @@map("categories")
+}
+
+model Transaction {
+  id          String   @id @default(cuid())
+  userId      String
+  walletId    String
+  categoryId  String?
+  type        String   // income, expense, transfer
+  amount      Float
+  description String?
+  date        DateTime @default(now())
+  notes       String?
+  tags        String?  // JSON array of tags
+  isRecurring Boolean  @default(false)
+  recurringId String?  // Reference to recurring transaction
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wallet     Wallet     @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  category   Category?  @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@index([userId, date])
+  @@index([userId, type])
+  @@map("transactions")
+}
+
+// ==================== PLANNING MODELS ====================
+model Budget {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  categoryId String?
+  amount    Float
+  spent     Float    @default(0)
+  period    String   @default("monthly") // weekly, monthly, yearly
+  startDate DateTime @default(now())
+  endDate   DateTime?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@index([userId, isActive])
+  @@map("budgets")
+}
+
+model Goal {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  targetAmount Float
+  currentAmount Float @default(0)
+  targetDate  DateTime?
+  category    String?  // savings, investment, purchase, etc.
+  priority    String?  @default("medium") // low, medium, high
+  isCompleted Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isCompleted])
+  @@map("goals")
+}
+
+model Debt {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String   // Person/entity name
+  type        String   // my_debt, others_debt
+  totalAmount Float
+  paidAmount  Float    @default(0)
+  interestRate Float?  @default(0)
+  dueDate     DateTime?
+  description String?
+  contact     String?  // Phone/email
+  isPaid      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+  @@index([userId, isPaid])
+  @@map("debts")
+}
+
+// ==================== AUTOMATION MODELS ====================
+model Reminder {
+  id          String   @id @default(cuid())
+  userId      String
+  title       String
+  description String?
+  type        String   // bill, debt, goal, custom
+  amount      Float?
+  dueDate     DateTime
+  isRecurring Boolean  @default(false)
+  recurringPeriod String? // daily, weekly, monthly, yearly
+  isNotified  Boolean  @default(false)
+  isCompleted Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, dueDate])
+  @@map("reminders")
+}
+
+model Notification {
+  id          String   @id @default(cuid())
+  userId      String
+  title       String
+  message     String
+  type        String   // info, warning, success, error
+  isRead      Boolean  @default(false)
+  link        String?  // Optional link to related content
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+// ==================== SETTINGS MODELS ====================
+model UserSettings {
+  id                String  @id @default(cuid())
+  userId            String  @unique
+  currency          String  @default("IDR")
+  language          String  @default("id")
+  theme             String  @default("light") // light, dark, system
+  dateFormat        String  @default("DD/MM/YYYY")
+  startOfWeek       String  @default("monday")
+  defaultWalletId   String?
+  enableNotifications Boolean @default(true)
+  enableReminders   Boolean @default(true)
+  monthlyReport     Boolean @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_settings")
+}
+
+model AIInsight {
+  id          String   @id @default(cuid())
+  userId      String
+  type        String   // spending_pattern, budget_alert, savings_tip, anomaly
+  title       String
+  content     String
+  severity    String   @default("info") // info, warning, critical
+  metadata    String?  // JSON for additional data
+  isRead      Boolean  @default(false)
+  isActionable Boolean @default(false)
+  actionTaken Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("ai_insights")
+}
